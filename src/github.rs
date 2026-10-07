@@ -13,6 +13,7 @@ pub struct Notification {
     pub id: String,
     pub unread: bool,
     pub reason: String,
+    pub updated_at: String,
     pub subject: Subject,
     pub repository: Repository,
 }
@@ -40,6 +41,7 @@ pub struct User {
 
 #[derive(Debug, Deserialize)]
 pub struct Pull {
+    pub html_url: String,
     pub user: User,
     pub state: String,
     #[serde(default)]
@@ -63,6 +65,15 @@ pub struct Team {
     pub organization: User,
 }
 
+/// One poll of the notifications endpoint.
+pub struct Poll {
+    /// `None` on `304 Not Modified`.
+    pub threads: Option<Vec<Notification>>,
+    pub last_modified: Option<String>,
+    /// Seconds GitHub asks to wait before the next poll.
+    pub interval: u64,
+}
+
 pub struct Client {
     agent: Agent,
     auth: String,
@@ -81,20 +92,31 @@ impl Client {
         })
     }
 
-    fn get(&self, url: &str, accept: &str) -> Result<Option<Response<ureq::Body>>> {
+    fn request(
+        &self,
+        url: &str,
+        accept: &str,
+        if_modified_since: Option<&str>,
+    ) -> Result<Response<ureq::Body>> {
         let url = if url.starts_with("https://") {
             url.to_owned()
         } else {
             format!("{API}{url}")
         };
-        let res = self
+        let mut req = self
             .agent
             .get(&url)
             .header("Authorization", &self.auth)
             .header("Accept", accept)
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .call()
-            .with_context(|| format!("GET {url}"))?;
+            .header("X-GitHub-Api-Version", "2022-11-28");
+        if let Some(since) = if_modified_since {
+            req = req.header("If-Modified-Since", since);
+        }
+        req.call().with_context(|| format!("GET {url}"))
+    }
+
+    fn get(&self, url: &str, accept: &str) -> Result<Option<Response<ureq::Body>>> {
+        let res = self.request(url, accept, None)?;
         match res.status().as_u16() {
             200..=299 => Ok(Some(res)),
             404 => Ok(None),
@@ -123,13 +145,52 @@ impl Client {
 
     /// Every page of a list endpoint, following `Link: rel="next"`.
     pub fn get_all<T: DeserializeOwned>(&self, url: &str) -> Result<Vec<T>> {
+        let res = self
+            .get(url, "application/vnd.github+json")?
+            .with_context(|| format!("GET {url}: not found"))?;
+        self.pages(url, res)
+    }
+
+    /// Notification threads (read ones too) updated after `since`. A `304` for `if_modified_since`
+    /// costs no rate limit.
+    pub fn poll_notifications(
+        &self,
+        since: Option<&str>,
+        if_modified_since: Option<&str>,
+    ) -> Result<Poll> {
+        let mut url = "/notifications?all=true&per_page=50".to_owned();
+        if let Some(since) = since {
+            url += &format!("&since={since}");
+        }
+        let res = self.request(&url, "application/vnd.github+json", if_modified_since)?;
+        let header = |name| {
+            res.headers()
+                .get(name)
+                .and_then(|v| v.to_str().ok())
+                .map(str::to_owned)
+        };
+        let last_modified = header("last-modified");
+        let interval = header("x-poll-interval")
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(60);
+        let threads = match res.status().as_u16() {
+            304 => None,
+            200..=299 => Some(self.pages(&url, res)?),
+            s => bail!("GET {url}: HTTP {s}"),
+        };
+        Ok(Poll {
+            threads,
+            last_modified,
+            interval,
+        })
+    }
+
+    /// `first` and every page after it.
+    fn pages<T: DeserializeOwned>(&self, url: &str, first: Response<ureq::Body>) -> Result<Vec<T>> {
         let mut out = Vec::new();
-        let mut next = Some(url.to_owned());
-        while let Some(url) = next {
-            let mut res = self
-                .get(&url, "application/vnd.github+json")?
-                .with_context(|| format!("GET {url}: not found"))?;
-            next = res
+        let mut page = Some((url.to_owned(), first));
+        while let Some((url, mut res)) = page {
+            let next = res
                 .headers()
                 .get("link")
                 .and_then(|v| v.to_str().ok())
@@ -139,6 +200,15 @@ impl Client {
                     .read_json::<Vec<T>>()
                     .with_context(|| format!("decode {url}"))?,
             );
+            page = match next {
+                Some(url) => {
+                    let res = self
+                        .get(&url, "application/vnd.github+json")?
+                        .with_context(|| format!("GET {url}: not found"))?;
+                    Some((url, res))
+                }
+                None => None,
+            };
         }
         Ok(out)
     }
