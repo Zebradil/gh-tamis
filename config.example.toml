@@ -9,6 +9,10 @@ bot_suffixes = ["[bot]", "-bot"]
 owned = ["your-login/*"]
 not_owned = []
 
+# Run for each new update of an unread `notify` thread, with or without --apply.
+# Placeholders: {title}, {repo}, {url}, {rule}, {reason}. Empty or absent: no notifications.
+notify_command = ["terminal-notifier", "-title", "{repo}", "-message", "{title}", "-open", "{url}", "-group", "{url}"]
+
 # Rules run top to bottom; the first whose `when` is true decides the tier.
 #
 # Tiers and what `--apply` does:

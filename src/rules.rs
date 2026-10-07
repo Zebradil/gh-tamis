@@ -4,7 +4,7 @@ use anyhow::{Context as _, Result, anyhow, bail};
 use cel::{Context, Env, Program, Value};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Tier {
     Notify,
