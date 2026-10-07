@@ -1,0 +1,25 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:best-practices",
+    "helpers:pinGitHubActionDigestsToSemver",
+    "schedule:weekly"
+  ],
+  "prHeader": "<!-- pr-autopilot:upgrades [{{#each upgrades}}{\"depName\":\"{{{depName}}}\",\"updateType\":\"{{{updateType}}}\",\"currentValue\":\"{{{currentValue}}}\",\"newValue\":\"{{{newValue}}}\",\"manager\":\"{{{manager}}}\"}{{#unless @last}},{{/unless}}{{/each}}] -->",
+  "packageRules": [
+    {
+      "description": "Group all GitHub Action updates into a single PR",
+      "matchManagers": ["github-actions"],
+      "groupName": "all GitHub Actions",
+      "groupSlug": "github-actions",
+      "addLabels": ["github-actions", "dependencies"],
+      "commitMessageExtra": "",
+    },
+    {
+      "groupName": "Rust dependencies",
+      "matchManagers": ["cargo"],
+      "rangeStrategy": "pin",
+      "commitMessageExtra": ""
+    }
+  ]
+}
