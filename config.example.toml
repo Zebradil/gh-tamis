@@ -1,0 +1,78 @@
+# Copy to ~/.config/gh-tamis/config.toml and adjust.
+
+# Author login suffixes that mark a bot, on top of GitHub's own `Bot` user type.
+# Some bots are plain user accounts, e.g. `release-bot`.
+bot_suffixes = ["[bot]", "-bot"]
+
+# A repo is owned when the first team on its CODEOWNERS `*` line is one of your teams.
+# These lists override that; patterns are `owner/repo` or `owner/*`.
+owned = ["your-login/*"]
+not_owned = []
+
+# Rules run top to bottom; the first whose `when` is true decides the tier.
+#
+# Tiers and what `--apply` does:
+#   notify     keep unread
+#   digest     keep as is (the daily digest will collect these)
+#   list       mark read, stays in the inbox
+#   on-demand  mark done
+#   clear      mark done
+#
+# Variables: reason, kind, repo, owner, title, unread, author, bot, state ("open", "merged",
+# "closed" or "" for non-PRs), draft, direct (review requested from you by name), owned,
+# requested_teams (team slugs still pending review).
+
+[[rule]]
+name = "mention"
+when = 'reason == "mention"'
+tier = "notify"
+
+[[rule]]
+name = "resolved-uninvolved"
+when = 'state in ["merged", "closed"] && !(reason in ["author", "comment", "mention", "manual", "assign"])'
+tier = "clear"
+
+[[rule]]
+name = "resolved-involved"
+when = 'state in ["merged", "closed"]'
+tier = "list"
+
+[[rule]]
+name = "ci-failure"
+when = 'kind == "CheckSuite" && title.contains("failed")'
+tier = "notify"
+
+[[rule]]
+name = "own-release"
+when = 'owned && (kind == "Release" || (bot && title.matches("^chore(\\(.+\\))?: release ")))'
+tier = "digest"
+
+[[rule]]
+name = "direct-review"
+when = 'direct && !bot'
+tier = "notify"
+
+[[rule]]
+name = "bot-owned"
+when = 'bot && owned'
+tier = "list"
+
+[[rule]]
+name = "bot-foreign"
+when = 'bot'
+tier = "on-demand"
+
+[[rule]]
+name = "ci"
+when = 'kind == "CheckSuite"'
+tier = "list"
+
+[[rule]]
+name = "human-owned"
+when = 'owned'
+tier = "notify"
+
+[[rule]]
+name = "human-foreign"
+when = 'true'
+tier = "digest"
